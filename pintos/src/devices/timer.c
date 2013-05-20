@@ -17,6 +17,15 @@
 #error TIMER_FREQ <= 1000 recommended
 #endif
 
+/* New */
+static struct list blocked_list;
+struct node {
+  struct thread *sleeping_thread;
+  struct list_elem element;
+  int64_t wake_tick;
+};
+/* New */
+
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
 
@@ -37,6 +46,9 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+
+  /* New */
+  list_init(&blocked_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -90,10 +102,23 @@ void
 timer_sleep (int64_t ticks) 
 {
   int64_t start = timer_ticks ();
-
   ASSERT (intr_get_level () == INTR_ON);
+  /* Old
   while (timer_elapsed (start) < ticks) 
     thread_yield ();
+  */  
+
+  /*new */  
+  enum intr_level old_level;
+  old_level = intr_disable();
+  struct node current;
+  current.sleeping_thread = thread_current();
+  current.wake_tick = start + ticks;
+  //add current to blocked list
+  list_push_back(&blocked_list, &current.element);
+  thread_block();
+  intr_set_level(old_level);
+  /* new */
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -172,6 +197,23 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
+
+  /* New */
+  struct list_elem *list_beginning;
+  list_beginning = list_begin (&blocked_list);
+
+  while (list_beginning != list_end (&blocked_list))
+    {
+      struct node *entry = list_entry (list_beginning, struct node, element);
+      if (timer_ticks () >= entry->wake_tick)
+  {
+	  thread_unblock (entry->sleeping_thread);
+	  list_remove (list_beginning);
+	}
+      list_beginning = list_next (list_beginning);
+    }
+  /* New */
+
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
