@@ -24,6 +24,14 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+/* NICE VALUES for BSD Scheduler */
+#define NICE_MAX 20
+#define NICE_DEFAULT 0
+#define NICE_MIN -20
+
+/* recent cpu values for BSD Scheduler */
+#define RCNT_CPU_DEFAULT 0
+
 /* A kernel thread or user process.
 
    Each thread structure is stored in its own 4 kB page.  The
@@ -89,6 +97,10 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
+
+    /* BSD scheduler */
+    int nice;                           /* nice value of a thread */
+    int rcnt_cpu;                      /* number indicating recent cpu usage */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
@@ -156,5 +168,13 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+void thread_is_ready(struct thread* t, void* aux);
+void inc_curr_rcnt_cpu(void);
+void compute_load_avg(int );
+void compute_rcnt_cpu(struct thread *t, void* aux);
+void compute_priority(struct thread *t, void* aux);
+bool compare_priority(const struct list_elem* a, const struct list_elem* b, void* aux);
+void update_rcnt_cpu(void);
+void update_priority(void);
 
 #endif /* threads/thread.h */
