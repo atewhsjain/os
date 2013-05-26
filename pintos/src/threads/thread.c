@@ -98,13 +98,17 @@ thread_init (void)
   if (thread_mlfqs){
     //set load avg to 0 at systemm boot
     load_avg = 0;
-    printf("setting load avg to %d\n", load_avg);
+    //printf("setting load avg to %d\n", load_avg);
   }
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
+
+  /* This is only used by BSD Scheduler */
+  initial_thread->nice = NICE_DEFAULT;
+  initial_thread->rcnt_cpu = RCNT_CPU_DEFAULT;
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -190,6 +194,21 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
+  /* init nice values and recent cpu*/
+  // only used by BSD Scheduler
+  if (thread_mlfqs){
+    if (thread_current() != idle_thread){
+      // setting the value of nice and recent cpu to
+      // parent threads value
+      t->nice = thread_current() ->nice;
+      t->rcnt_cpu = thread_current() ->rcnt_cpu;
+    }else{
+      t->nice = NICE_DEFAULT;
+      t->rcnt_cpu = RCNT_CPU_DEFAULT;
+    }
+    compute_priority(t, NULL);
+  }
+
 
   /* Prepare thread for first run by initializing its stack.
      Do this atomically so intermediate values for the 'stack'
@@ -252,7 +271,11 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  if (thread_mlfqs){
+     list_insert_ordered (&ready_list, &t->elem, compare_priority, NULL);
+  }else{
+     list_push_back (&ready_list, &t->elem);
+  }
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -322,8 +345,13 @@ thread_yield (void)
   ASSERT (!intr_context ());
 
   old_level = intr_disable ();
-  if (cur != idle_thread)
-    list_push_back (&ready_list, &cur->elem);
+  if (cur != idle_thread){
+    if (thread_mlfqs){
+       list_push_back (&ready_list, &cur->elem);
+    }else{
+       list_insert_ordered (&ready_list, &cur->elem, compare_priority, NULL);
+    }
+  }
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -368,10 +396,15 @@ thread_set_nice (int nice )
        return;
    thread_current ()->nice = nice;
    // TODO: calculate priority again
-
-   // TODO: yield if priority is not
-   // max priority anymore
-   // intr_yield_on_return ();
+   if (thread_mlfqs){
+     compute_priority(thread_current(), NULL);
+     // TODO: yield if priority is not
+     // max priority anymore
+     // intr_yield_on_return ();
+     if (thread_current()->priority != PRI_MAX){
+       thread_yield();
+     }
+   }
    return;
 }
 
@@ -397,8 +430,10 @@ thread_get_load_avg (void)
 int
 thread_get_recent_cpu (void)
 {
-  /* Not yet implemented. */
-  return 0;
+  //old_level = intr_disable ();
+  int rcnt_cpu_rnd = fp2int_rnd(mult_fpint(thread_current()->rcnt_cpu, 100));
+  //intr_set_level(old_level);
+  return rcnt_cpu_rnd;
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -485,6 +520,7 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+
   t->magic = THREAD_MAGIC;
   list_push_back (&all_list, &t->allelem);
 }
@@ -574,6 +610,7 @@ schedule (void)
 {
   struct thread *cur = running_thread ();
   struct thread *next = next_thread_to_run ();
+
   struct thread *prev = NULL;
 
   ASSERT (intr_get_level () == INTR_OFF);
@@ -587,25 +624,60 @@ schedule (void)
 
 /* BSD Scheduler building blocks */
 
-void compute_load_avg(){
-  // get the number of ready threads
+void compute_load_avg(int second){
   int ready_threads = list_size(&ready_list);
   if (thread_current() != idle_thread){
-    // ready threads should include
-    // all running threads
     ready_threads++;
   }
   dfp_t coeff1 = dvide_fpint(int2fp(59), 60);
-  //printf("(59/60) = %ld\n", coeff1);
   dfp_t coeff2 = dvide_fpint(int2fp(1), 60);
-  //printf("(1/60) = %ld\n", coeff2);
-  //printf("ready threads = %ld\n", ready_threads);
-  //printf("load_avg = %ld\n", load_avg);
-  //printf("59/60 *loadavg = %ld\n", mult_fp(coeff1, load_avg));
-  //printf("1/60 * ready= %ld\n", mult_fpint(coeff2, ready_threads));
   load_avg = sum_fp(mult_fp(coeff1, load_avg), mult_fpint(coeff2, ready_threads));
-  //printf("load_avg = %ld\n", load_avg);
-  //printf(" load avg 100 = %d\n", fp2int_rnd(mult_fpint(load_avg, 100)));
+}
+
+void thread_is_ready(struct thread* t, void* aux){
+  if (t->status == THREAD_READY){
+    (*(int *)aux)++;
+  }
+}
+
+void inc_curr_rcnt_cpu(void){
+  if (thread_current() != idle_thread){
+     thread_current()->rcnt_cpu =
+        sum_fpint(thread_current()->rcnt_cpu, 1);
+  }
+}
+void compute_rcnt_cpu(struct thread *t, void* aux UNUSED){
+  enum intr_level oldlevel = intr_disable();
+  int64_t twice_load_avg = mult_fpint(load_avg, 2);
+  int64_t term1 = mult_fp(twice_load_avg, t->rcnt_cpu);
+  term1 = dvide_fp(term1, sum_fpint(twice_load_avg, 1));
+  t->rcnt_cpu = sum_fpint(term1, t->nice);
+  intr_set_level(oldlevel);
+}
+
+void compute_priority(struct thread *t, void* aux UNUSED){
+  enum intr_level oldlevel = intr_disable();
+  int64_t term1 = dvide_fpint(t->rcnt_cpu, 4);
+  int64_t term2 = mult_fpint(t->nice, 2);
+  int64_t termsum = sum_fp(term1, term2);
+  t->priority = fp2int_rnd(diff_fp(int2fp(PRI_MAX), termsum));
+  intr_set_level(oldlevel);
+}
+
+void update_rcnt_cpu(void){
+  /* update recent cpu for all threads */
+  thread_foreach(compute_rcnt_cpu, NULL);
+}
+
+bool compare_priority(const struct list_elem* a, const struct list_elem* b, void* aux UNUSED){
+  struct thread *t1 = list_entry (a, struct thread, allelem);
+  struct thread *t2 = list_entry (b, struct thread, allelem);
+  return t1->priority < t2->priority;
+}
+
+void update_priority(void){
+  thread_foreach(compute_priority, NULL);
+  list_sort (&ready_list, compare_priority, NULL);
 }
 
 /* Returns a tid to use for a new thread. */

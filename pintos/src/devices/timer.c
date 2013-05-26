@@ -203,8 +203,19 @@ timer_interrupt (struct intr_frame *args UNUSED)
   // reaches a multiple of a second
   if (thread_mlfqs)
   {
+     inc_curr_rcnt_cpu();
+     // update below every second
+     //printf("ticks: %d\n", ticks);
      if(ticks % TIMER_FREQ == 0){
-        compute_load_avg();
+        // update load avg
+        compute_load_avg(ticks);
+        // update recent cpu for all threads
+        update_rcnt_cpu();
+     }
+     // increment recent cpu if idle thread is
+     // not running
+     if (ticks % 4 == 0){
+        update_priority();
      }
   }
 
