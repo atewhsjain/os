@@ -356,13 +356,13 @@ thread_yield (void)
   old_level = intr_disable ();
   if (cur != idle_thread){
     if (thread_mlfqs){
+      list_insert_ordered (&ready_list, &cur->elem, compare_priority, NULL);
+    }else{
       // TODO: check compare function
       list_insert_ordered(&ready_list, &cur->elem,
 			  (list_less_func *) &cmp_priority,
 			  NULL);
       // list_push_back (&ready_list, &cur->elem);
-    }else{
-       list_insert_ordered (&ready_list, &cur->elem, compare_priority, NULL);
     }
   }
   cur->status = THREAD_READY;
