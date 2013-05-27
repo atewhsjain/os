@@ -205,10 +205,9 @@ timer_interrupt (struct intr_frame *args UNUSED)
   {
      inc_curr_rcnt_cpu();
      // update below every second
-     //printf("ticks: %d\n", ticks);
      if(ticks % TIMER_FREQ == 0){
         // update load avg
-        compute_load_avg(ticks);
+        compute_load_avg();
         // update recent cpu for all threads
         update_rcnt_cpu();
      }

@@ -100,7 +100,6 @@ thread_init (void)
   if (thread_mlfqs){
     //set load avg to 0 at systemm boot
     load_avg = 0;
-    //printf("setting load avg to %d\n", load_avg);
   }
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -278,7 +277,7 @@ thread_unblock (struct thread *t)
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
   if (thread_mlfqs){
-     list_insert_ordered (&ready_list, &t->elem, compare_priority, NULL);
+     list_insert_ordered (&ready_list, &t->elem, cmp_priority, NULL);
   }else{
     // TODO: check compare function
 	list_insert_ordered(&ready_list, &t->elem,
@@ -356,7 +355,7 @@ thread_yield (void)
   old_level = intr_disable ();
   if (cur != idle_thread){
     if (thread_mlfqs){
-      list_insert_ordered (&ready_list, &cur->elem, compare_priority, NULL);
+      list_insert_ordered (&ready_list, &cur->elem, cmp_priority , NULL);
     }else{
       // TODO: check compare function
       list_insert_ordered(&ready_list, &cur->elem,
@@ -428,6 +427,8 @@ thread_get_priority (void)
 void
 thread_set_nice (int nice )
 {
+   enum intr_level oldlevel;
+   oldlevel = intr_disable();
    if (nice > 20 || nice < -20)
        return;
    thread_current ()->nice = nice;
@@ -441,6 +442,7 @@ thread_set_nice (int nice )
        thread_yield();
      }
    }
+   intr_set_level(oldlevel);
    return;
 }
 
@@ -448,7 +450,11 @@ thread_set_nice (int nice )
 int
 thread_get_nice (void)
 {
-   return thread_current ()->nice;
+   enum intr_level oldlevel;
+   oldlevel = intr_disable();
+   int tmpnice = thread_current()->nice;
+   intr_set_level(oldlevel);
+   return tmpnice;
 }
 
 /* Returns 100 times the system load average. */
@@ -665,7 +671,7 @@ schedule (void)
 
 /* BSD Scheduler building blocks */
 
-void compute_load_avg(int second){
+void compute_load_avg(void){
   int ready_threads = list_size(&ready_list);
   if (thread_current() != idle_thread){
     ready_threads++;
@@ -699,9 +705,11 @@ void compute_rcnt_cpu(struct thread *t, void* aux UNUSED){
 void compute_priority(struct thread *t, void* aux UNUSED){
   enum intr_level oldlevel = intr_disable();
   int64_t term1 = dvide_fpint(t->rcnt_cpu, 4);
-  int64_t term2 = mult_fpint(t->nice, 2);
-  int64_t termsum = sum_fp(term1, term2);
+  int32_t term2 = t->nice * 2;
+  int64_t termsum = sum_fpint(term1, term2);
   t->priority = fp2int_rnd(diff_fp(int2fp(PRI_MAX), termsum));
+  t->priority = (t->priority < PRI_MIN) ? PRI_MIN : t->priority;
+  t->priority = (t->priority > PRI_MAX) ? PRI_MAX : t->priority;
   intr_set_level(oldlevel);
 }
 
@@ -710,15 +718,9 @@ void update_rcnt_cpu(void){
   thread_foreach(compute_rcnt_cpu, NULL);
 }
 
-bool compare_priority(const struct list_elem* a, const struct list_elem* b, void* aux UNUSED){
-  struct thread *t1 = list_entry (a, struct thread, allelem);
-  struct thread *t2 = list_entry (b, struct thread, allelem);
-  return t1->priority < t2->priority;
-}
-
 void update_priority(void){
   thread_foreach(compute_priority, NULL);
-  list_sort (&ready_list, compare_priority, NULL);
+  list_sort (&ready_list, cmp_priority, NULL);
 }
 
 /* Returns a tid to use for a new thread. */
@@ -739,12 +741,12 @@ bool cmp_priority (const struct list_elem *a,
 		   const struct list_elem *b,
 		   void *aux UNUSED)
 {
-  struct thread *ta = list_entry(a, struct thread, elem);
-  struct thread *tb = list_entry(b, struct thread, elem);
-  if (ta->priority > tb->priority)
-    {
+  struct thread *t1 = list_entry(a, struct thread, elem);
+  struct thread *t2 = list_entry(b, struct thread, elem);
+  if (t1->priority > t2->priority)
+  {
       return true;
-    }
+  }
   return false;
 }
 

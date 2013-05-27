@@ -169,7 +169,7 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 void thread_is_ready(struct thread* t, void* aux);
 void inc_curr_rcnt_cpu(void);
-void compute_load_avg(int );
+void compute_load_avg(void);
 void compute_rcnt_cpu(struct thread *t, void* aux);
 void compute_priority(struct thread *t, void* aux);
 bool compare_priority(const struct list_elem* a, const struct list_elem* b, void* aux);
