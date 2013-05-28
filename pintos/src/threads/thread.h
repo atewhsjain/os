@@ -105,8 +105,6 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
-
-	/* Used for priority scheduling */
     int init_priority;
     struct lock *wait_on_lock;
     struct list donations;
@@ -153,15 +151,10 @@ int thread_get_priority (void);
 void thread_set_priority (int);
 
 void donate_priority (void);
-void remove_with_lock (struct lock *lock);
-void refresh_priority (void);
+void remove_from_donations (struct lock *lock);
+void reassign_priority (void);
 
-bool cmp_priority (const struct list_elem *a,
-		   const struct list_elem *b,
-		   void *aux UNUSED);
 void check_priority (void);
-
-
 
 int thread_get_nice (void);
 void thread_set_nice (int);
@@ -172,7 +165,7 @@ void inc_curr_rcnt_cpu(void);
 void compute_load_avg(void);
 void compute_rcnt_cpu(struct thread *t, void* aux);
 void compute_priority(struct thread *t, void* aux);
-bool compare_priority(const struct list_elem* a, const struct list_elem* b, void* aux);
+bool compare_priority(const struct list_elem* a, const struct list_elem* b);
 void update_rcnt_cpu(void);
 void update_priority(void);
 
